@@ -26,4 +26,11 @@ manager = Thread.new {
   ).execute!
 }
 
+if ENV['VMPOOLER_DEBUG']
+  trap("INT") do
+    puts "Shutting down."
+    [api, manager].each { |t| t.exit }
+  end
+end
+
 [api, manager].each { |t| t.join }

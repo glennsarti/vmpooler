@@ -59,6 +59,7 @@ module Vmpooler
           obj['template'] = dummy['template']
           obj['poolname'] = dummy['poolname']
           obj['powerstate'] = dummy['powerstate']
+          obj['snapshots'] = dummy['snapshots']
 
           obj
         end
@@ -146,6 +147,7 @@ module Vmpooler
           vm['powerstate'] = 'PoweredOn'
           vm['vm_host'] = 'HOST1'
           vm['dummy_state'] = 'UNKNOWN'
+          vm['snapshots'] = []
           get_pool_object(pool_name)
           @dummylist['pool'][pool_name] << vm
 
@@ -204,6 +206,14 @@ module Vmpooler
 
           # 'Destroy' the VM
           remove_dummy_vm(vm_name,pool)
+
+          true
+        end
+
+        def create_snapshot(pool_name, vm_name, snapshot_name)
+          vm_object = get_dummy_vm(vm_name)
+
+          vm_object['snapshots'] << snapshot_name
 
           true
         end

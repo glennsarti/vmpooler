@@ -324,29 +324,23 @@ fail "NOT YET REFACTORED"
       end
     end
 
-    def _create_vm_snapshot(vm, snapshot_name, vsphere)
-fail "NOT YET REFACTORED"      
-# TODO This is all vSphere specific
-      host = vsphere.find_vm(vm)
+    #def _create_vm_snapshot(vm, snapshot_name, vsphere)
+    def _create_vm_snapshot(pool_name, vm_name, snapshot_name, backing_service)
+      $logger.log('s', "[ ] [snapshot_manager] 'Attempting to snapshot #{vm_name} in pool #{pool_name}")
+      start = Time.now
 
-      if (host) && ((! snapshot_name.nil?) && (! snapshot_name.empty?))
-        $logger.log('s', "[ ] [snapshot_manager] '#{vm}' is being snapshotted")
+      result = backing_service.create_snapshot(pool_name, vm_name, snapshot_name)
 
-        start = Time.now
+      finish = '%.2f' % (Time.now - start)
 
-        host.CreateSnapshot_Task(
-          name: snapshot_name,
-          description: 'vmpooler',
-          memory: true,
-          quiesce: true
-        ).wait_for_completion
-
-        finish = '%.2f' % (Time.now - start)
-
-        $redis.hset('vmpooler__vm__' + vm, 'snapshot:' + snapshot_name, Time.now.to_s)
-
-        $logger.log('s', "[+] [snapshot_manager] '#{vm}' snapshot created in #{finish} seconds")
+      if result
+        $redis.hset('vmpooler__vm__' + vm_name, 'snapshot:' + snapshot_name, Time.now.to_s)
+        $logger.log('s', "[+] [snapshot_manager] '#{vm_name}' snapshot created in #{finish} seconds")
+      else
+        $logger.log('s', "[+] [snapshot_manager] Failed to snapshot '#{vm_name}'")
       end
+      
+      result
     end
 
     def revert_vm_snapshot(vm, snapshot_name, vsphere)
@@ -410,31 +404,37 @@ fail "NOT YET REFACTORED"
     end
 
     def check_snapshot_queue
-fail "NOT YET REFACTORED"      
-# TODO This is all vSphere specific
       $logger.log('d', "[*] [snapshot_manager] starting worker thread")
-
-      $vsphere['snapshot_manager'] ||= Vmpooler::VsphereHelper.new $config, $metrics
 
       $threads['snapshot_manager'] = Thread.new do
         loop do
-          _check_snapshot_queue $vsphere['snapshot_manager']
-          sleep(5)
+          _check_snapshot_queue()
+          sleep(1) # 5
         end
       end
     end
 
-    def _check_snapshot_queue(vsphere)
-fail "NOT YET REFACTORED"      
-# TODO This is all vSphere specific
-      vm = $redis.spop('vmpooler__tasks__snapshot')
+    def get_pool_name_for_vm(vm_name)
+      # the 'template' is a bad name.  Should really be 'poolname'
+      $redis.hget('vmpooler__vm__' + vm_name, 'template')
+    end
 
-      unless vm.nil?
+    def _check_snapshot_queue()
+      task_detail = $redis.spop('vmpooler__tasks__snapshot')
+
+      unless task_detail.nil?
         begin
-          vm_name, snapshot_name = vm.split(':')
-          create_vm_snapshot(vm_name, snapshot_name, vsphere)
-        rescue
-          $logger.log('s', "[!] [snapshot_manager] snapshot appears to have failed")
+          vm_name, snapshot_name = task_detail.split(':')
+          pool_name = get_pool_name_for_vm(vm_name)
+          raise("Unable to determine which pool #{vm_name} is a member of") if pool_name.nil?
+          
+          backing_service = $backing_services[pool_name]
+          raise("Missing backing service for vm #{vm_name} in pool #{pool_name}") if backing_service.nil?
+
+          # No need for yet another thread here
+          _create_vm_snapshot(pool_name,vm_name, snapshot_name,backing_service)
+        rescue => err
+          $logger.log('s', "[!] [snapshot_manager] snapshot create appears to have failed #{err}")
         end
       end
 
@@ -443,7 +443,8 @@ fail "NOT YET REFACTORED"
       unless vm.nil?
         begin
           vm_name, snapshot_name = vm.split(':')
-          revert_vm_snapshot(vm_name, snapshot_name, vsphere)
+          puts "revert_vm_snapshot(#{vm_name}, #{snapshot_name})"
+          #revert_vm_snapshot(vm_name, snapshot_name, vsphere)
         rescue
           $logger.log('s', "[!] [snapshot_manager] snapshot revert appears to have failed")
         end
@@ -693,6 +694,10 @@ fail "NOT YET REFACTORED"
     def execute!
       $logger.log('d', 'starting vmpooler')
 
+      # DEBUG ONLY
+      $logger.log('d','FLUSHING REDIS')
+      $redis.flushall
+
       # Clear out the tasks manager, as we don't know about any tasks at this point
       $redis.set('vmpooler__tasks__clone', 0)
       # Clear out vmpooler__migrations since stale entries may be left after a restart
@@ -711,12 +716,12 @@ fail "NOT YET REFACTORED"
         #   check_disk_queue
         # end
 
-        # if ! $threads['snapshot_manager']
-        #   check_snapshot_queue
-        # elsif ! $threads['snapshot_manager'].alive?
-        #   $logger.log('d', "[!] [snapshot_manager] worker thread died, restarting")
-        #   check_snapshot_queue
-        # end
+        if ! $threads['snapshot_manager']
+          check_snapshot_queue
+        elsif ! $threads['snapshot_manager'].alive?
+          $logger.log('d', "[!] [snapshot_manager] worker thread died, restarting")
+          check_snapshot_queue
+        end
 
         $config[:pools].each do |pool|
           if ! $threads[pool['name']]

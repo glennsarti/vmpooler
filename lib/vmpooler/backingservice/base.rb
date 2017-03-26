@@ -105,6 +105,17 @@ module Vmpooler
           !get_vm(vm).nil?
         end
 
+        # inputs
+        #    vm  : string
+        #    pool: string
+        #    snapshot name: string
+        # timeout: int (Seconds)
+        # returns
+        #   result: boolean
+        def create_snapshot(pool_name, vm_name, snapshot_name)
+          fail "#{self.class.name} does not implement create_snapshot"
+        end
+
       end
     end
   end

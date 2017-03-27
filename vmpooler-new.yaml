@@ -385,14 +385,14 @@
   - name: 'debian-7-i386'
     template: 'test1'
     backingservice: dummy
-    size: 1
+    size: 3
     timeout: 15
     ready_ttl: 1440
   
   - name: 'debian-7-x86_64'
     template: 'test1'
     backingservice: dummy
-    size: 1
+    size: 3
     timeout: 15
     ready_ttl: 1440
 

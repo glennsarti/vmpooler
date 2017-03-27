@@ -324,7 +324,6 @@ fail "NOT YET REFACTORED"
       end
     end
 
-    #def _create_vm_snapshot(vm, snapshot_name, vsphere)
     def _create_vm_snapshot(pool_name, vm_name, snapshot_name, backing_service)
       $logger.log('s', "[ ] [snapshot_manager] 'Attempting to snapshot #{vm_name} in pool #{pool_name}")
       start = Time.now
@@ -351,26 +350,21 @@ fail "NOT YET REFACTORED"
       end
     end
 
-    def _revert_vm_snapshot(vm, snapshot_name, vsphere)
-fail "NOT YET REFACTORED"      
-# TODO This is all vSphere specific
-      host = vsphere.find_vm(vm)
+    def _revert_vm_snapshot(pool_name, vm_name, snapshot_name, backing_service)
+      $logger.log('s', "[ ] [snapshot_manager] 'Attempting to revert #{vm_name}' in pool #{pool_name} to snapshot '#{snapshot_name}'")
+      start = Time.now
 
-      if host
-        snapshot = vsphere.find_snapshot(host, snapshot_name)
+      result = backing_service.revert_snapshot(pool_name, vm_name, snapshot_name)
 
-        if snapshot
-          $logger.log('s', "[ ] [snapshot_manager] '#{vm}' is being reverted to snapshot '#{snapshot_name}'")
+      finish = '%.2f' % (Time.now - start)
 
-          start = Time.now
-
-          snapshot.RevertToSnapshot_Task.wait_for_completion
-
-          finish = '%.2f' % (Time.now - start)
-
-          $logger.log('s', "[<] [snapshot_manager] '#{vm}' reverted to snapshot in #{finish} seconds")
-        end
+      if result
+        $logger.log('s', "[+] [snapshot_manager] '#{vm_name}' reverted to snapshot '#{snapshot_name}' in #{finish} seconds")
+      else
+        $logger.log('s', "[+] [snapshot_manager] Failed to revert #{vm_name}' in pool #{pool_name} to snapshot '#{snapshot_name}'")
       end
+
+      result
     end
 
     def check_disk_queue
@@ -438,15 +432,21 @@ fail "NOT YET REFACTORED"
         end
       end
 
-      vm = $redis.spop('vmpooler__tasks__snapshot-revert')
+      task_detail = $redis.spop('vmpooler__tasks__snapshot-revert')
 
-      unless vm.nil?
+      unless task_detail.nil?
         begin
-          vm_name, snapshot_name = vm.split(':')
-          puts "revert_vm_snapshot(#{vm_name}, #{snapshot_name})"
-          #revert_vm_snapshot(vm_name, snapshot_name, vsphere)
-        rescue
-          $logger.log('s', "[!] [snapshot_manager] snapshot revert appears to have failed")
+          vm_name, snapshot_name = task_detail.split(':')
+          pool_name = get_pool_name_for_vm(vm_name)
+          raise("Unable to determine which pool #{vm_name} is a member of") if pool_name.nil?
+          
+          backing_service = $backing_services[pool_name]
+          raise("Missing backing service for vm #{vm_name} in pool #{pool_name}") if backing_service.nil?
+
+          # No need for yet another thread here
+          _revert_vm_snapshot(pool_name, vm_name, snapshot_name, backing_service)
+        rescue => err
+          $logger.log('s', "[!] [snapshot_manager] snapshot revert appears to have failed #{err}")
         end
       end
     end

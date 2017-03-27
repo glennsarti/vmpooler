@@ -116,6 +116,17 @@ module Vmpooler
           fail "#{self.class.name} does not implement create_snapshot"
         end
 
+        # inputs
+        #    vm  : string
+        #    pool: string
+        #    snapshot name: string
+        # timeout: int (Seconds)
+        # returns
+        #   result: boolean
+        def revert_snapshot(pool_name, vm_name, snapshot_name)
+          fail "#{self.class.name} does not implement revert_snapshot"
+        end
+
       end
     end
   end

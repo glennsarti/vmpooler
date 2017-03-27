@@ -218,6 +218,14 @@ module Vmpooler
           true
         end
 
+        def revert_snapshot(pool_name, vm_name, snapshot_name)
+          vm_object = get_dummy_vm(vm_name)
+
+          return false unless vm_object['snapshots'].include?(snapshot_name)
+
+          true
+        end
+
         private
         def remove_dummy_vm(vm_name,pool)
           return if @dummylist['pool'][pool].nil?

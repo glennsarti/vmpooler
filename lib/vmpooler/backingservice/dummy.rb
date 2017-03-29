@@ -148,6 +148,8 @@ module Vmpooler
           vm['vm_host'] = 'HOST1'
           vm['dummy_state'] = 'UNKNOWN'
           vm['snapshots'] = []
+          vm['disks'] = []
+
           get_pool_object(pool_name)
           @dummylist['pool'][pool_name] << vm
 
@@ -210,9 +212,19 @@ module Vmpooler
           true
         end
 
+        def create_disk(pool_name, vm_name, disk_size)
+          vm_object = get_dummy_vm(vm_name)
+
+          # TODO Add failure injection
+          vm_object['disks'] << disk_size
+
+          true
+        end
+
         def create_snapshot(pool_name, vm_name, snapshot_name)
           vm_object = get_dummy_vm(vm_name)
 
+          # TODO Add failure injection
           vm_object['snapshots'] << snapshot_name
 
           true
@@ -221,6 +233,7 @@ module Vmpooler
         def revert_snapshot(pool_name, vm_name, snapshot_name)
           vm_object = get_dummy_vm(vm_name)
 
+          # TODO Add failure injection
           return false unless vm_object['snapshots'].include?(snapshot_name)
 
           true

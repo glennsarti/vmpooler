@@ -108,6 +108,17 @@ module Vmpooler
         # inputs
         #    vm  : string
         #    pool: string
+        #    disk size: integer
+        # timeout: int (Seconds)
+        # returns
+        #   result: boolean
+        def create_disk(pool_name, vm_name, disk_size)
+          fail "#{self.class.name} does not implement create_disk"
+        end
+
+        # inputs
+        #    vm  : string
+        #    pool: string
         #    snapshot name: string
         # timeout: int (Seconds)
         # returns

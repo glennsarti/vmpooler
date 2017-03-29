@@ -280,40 +280,29 @@ fail "NOT YET REFACTORED"
       end
     end
 
-    def _create_vm_disk(vm, disk_size, vsphere)
-fail "NOT YET REFACTORED"      
-# TODO This is all vSphere specific
-      host = vsphere.find_vm(vm)
+    def _create_vm_disk(pool_name, vm_name, disk_size, backing_service)
+      raise("Invalid disk size of '#{disk_size}' passed") if (disk_size.nil?) || (disk_size.empty?) || (disk_size.to_i <= 0)
 
-      if (host) && ((! disk_size.nil?) && (! disk_size.empty?) && (disk_size.to_i > 0))
-        $logger.log('s', "[ ] [disk_manager] '#{vm}' is attaching a #{disk_size}gb disk")
+      $logger.log('s', "[ ] [disk_manager] '#{vm_name}' is attaching a #{disk_size}gb disk")
 
-        start = Time.now
+      start = Time.now
 
-        template = $redis.hget('vmpooler__vm__' + vm, 'template')
-        datastore = nil
+      result = backing_service.create_disk(pool_name, vm_name, disk_size.to_i)
 
-        $config[:pools].each do |pool|
-          if pool['name'] == template
-            datastore = pool['datastore']
-          end
-        end
+      finish = '%.2f' % (Time.now - start)
 
-        if ((! datastore.nil?) && (! datastore.empty?))
-          vsphere.add_disk(host, disk_size, datastore)
+      if result
+        rdisks = $redis.hget('vmpooler__vm__' + vm_name, 'disk')
+        disks = rdisks ? rdisks.split(':') : []
+        disks.push("+#{disk_size}gb")
+        $redis.hset('vmpooler__vm__' + vm_name, 'disk', disks.join(':'))
 
-          rdisks = $redis.hget('vmpooler__vm__' + vm, 'disk')
-          disks = rdisks ? rdisks.split(':') : []
-          disks.push("+#{disk_size}gb")
-          $redis.hset('vmpooler__vm__' + vm, 'disk', disks.join(':'))
-
-          finish = '%.2f' % (Time.now - start)
-
-          $logger.log('s', "[+] [disk_manager] '#{vm}' attached #{disk_size}gb disk in #{finish} seconds")
-        else
-          $logger.log('s', "[+] [disk_manager] '#{vm}' failed to attach disk")
-        end
+        $logger.log('s', "[+] [disk_manager] '#{vm_name}' attached #{disk_size}gb disk in #{finish} seconds")
+      else
+        $logger.log('s', "[+] [disk_manager] '#{vm_name}' failed to attach disk")
       end
+      
+      result
     end
 
     def create_vm_snapshot(vm, snapshot_name, vsphere)
@@ -368,31 +357,35 @@ fail "NOT YET REFACTORED"
     end
 
     def check_disk_queue
-fail "NOT YET REFACTORED"      
-# TODO This is all vSphere specific
       $logger.log('d', "[*] [disk_manager] starting worker thread")
-
-      $vsphere['disk_manager'] ||= Vmpooler::VsphereHelper.new $config, $metrics
 
       $threads['disk_manager'] = Thread.new do
         loop do
-          _check_disk_queue $vsphere['disk_manager']
-          sleep(5)
+          _check_disk_queue()
+          sleep(1) # 5
         end
       end
     end
 
-    def _check_disk_queue(vsphere)
-fail "NOT YET REFACTORED"      
-# TODO This is all vSphere specific
-      vm = $redis.spop('vmpooler__tasks__disk')
+    def _check_disk_queue()
+      task_detail = $redis.spop('vmpooler__tasks__disk')
 
-      unless vm.nil?
+      unless task_detail.nil?
         begin
-          vm_name, disk_size = vm.split(':')
-          create_vm_disk(vm_name, disk_size, vsphere)
-        rescue
-          $logger.log('s', "[!] [disk_manager] disk creation appears to have failed")
+          vm_name, disk_size = task_detail.split(':')
+          pool_name = get_pool_name_for_vm(vm_name)
+          raise("Unable to determine which pool #{vm_name} is a member of") if pool_name.nil?
+          
+          backing_service = $backing_services[pool_name]
+          raise("Missing backing service for vm #{vm_name} in pool #{pool_name}") if backing_service.nil?
+
+          # No need for yet another thread here
+          _create_vm_disk(pool_name, vm_name, disk_size, backing_service)
+
+#puts "create_vm_disk(pool_name, vm_name, disk_size, backing_service)"
+#          create_vm_disk(vm_name, disk_size, vsphere)
+        rescue => err
+          $logger.log('s', "[!] [disk_manager] disk creation appears to have failed #{err}")
         end
       end
     end
@@ -708,13 +701,12 @@ fail "NOT YET REFACTORED"
       end
 
       loop do
-        # DEBUG TO DO
-        # if ! $threads['disk_manager']
-        #   check_disk_queue
-        # elsif ! $threads['disk_manager'].alive?
-        #   $logger.log('d', "[!] [disk_manager] worker thread died, restarting")
-        #   check_disk_queue
-        # end
+        if ! $threads['disk_manager']
+          check_disk_queue
+        elsif ! $threads['disk_manager'].alive?
+          $logger.log('d', "[!] [disk_manager] worker thread died, restarting")
+          check_disk_queue
+        end
 
         if ! $threads['snapshot_manager']
           check_snapshot_queue
